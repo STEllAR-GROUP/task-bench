@@ -21,33 +21,15 @@ find_package(HPX REQUIRED)
 
 link_directories(${CMAKE_SOURCE_DIR}/../core)
 
-add_executable(async_mpi_par async_mpi_par.cc)
-target_link_libraries(async_mpi_par PUBLIC HPX::hpx HPX::wrap_main core_s)
-
-add_executable(async_mpi_executor async_mpi_executor.cc)
-target_link_libraries(async_mpi_executor PUBLIC HPX::hpx HPX::wrap_main core_s)
-
-add_executable(channel_executor channel_executor.cc)
-target_link_libraries(channel_executor PUBLIC HPX::hpx HPX::wrap_main core_s)
-
-add_executable(channel_par channel_par.cc)
-target_link_libraries(channel_par PUBLIC HPX::hpx HPX::wrap_main core_s)
 
 add_executable(mpi_executor mpi_executor.cc)
 target_link_libraries(mpi_executor PUBLIC HPX::hpx HPX::wrap_main core_s)
 
-add_executable(mpi_par mpi_par.cc)
-target_link_libraries(mpi_par PUBLIC HPX::hpx HPX::wrap_main core_s)
-
-add_executable(hpx_local_executor hpx_local_executor.cc)
-target_link_libraries(hpx_local_executor PUBLIC HPX::hpx HPX::wrap_main core_s)
-
-add_executable(hpx_local_par hpx_local_par.cc)
-target_link_libraries(hpx_local_par PUBLIC HPX::hpx HPX::wrap_main core_s)
-
 add_executable(new_hpx_local new_hpx_local.cc)
 target_link_libraries(new_hpx_local PUBLIC HPX::hpx HPX::wrap_main core_s)
 
-add_executable(mpi_executor_optim mpi_executor_optim.cc)
-target_link_libraries(mpi_executor_optim PUBLIC HPX::hpx HPX::wrap_main core_s)
+add_executable(mpi_executor_2 mpi_executor_2.cc)
+target_link_libraries(mpi_executor_2 PUBLIC HPX::hpx HPX::wrap_main core_s)
+
+
 
