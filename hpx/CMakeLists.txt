@@ -28,8 +28,8 @@ target_link_libraries(mpi_executor PUBLIC HPX::hpx HPX::wrap_main core_s)
 add_executable(new_hpx_local new_hpx_local.cc)
 target_link_libraries(new_hpx_local PUBLIC HPX::hpx HPX::wrap_main core_s)
 
-add_executable(mpi_executor_2 mpi_executor_2.cc)
-target_link_libraries(mpi_executor_2 PUBLIC HPX::hpx HPX::wrap_main core_s)
+add_executable(mpi_executor_over mpi_executor_over.cc)
+target_link_libraries(mpi_executor_over PUBLIC HPX::hpx HPX::wrap_main core_s)
 
 
 
