@@ -31,5 +31,8 @@ target_link_libraries(new_hpx_local PUBLIC HPX::hpx HPX::wrap_main core_s)
 add_executable(mpi_executor_over mpi_executor_over.cc)
 target_link_libraries(mpi_executor_over PUBLIC HPX::hpx HPX::wrap_main core_s)
 
+add_executable(mpi_executor_optim mpi_executor_optim.cc)
+target_link_libraries(mpi_executor_optim PUBLIC HPX::hpx HPX::wrap_main core_s)
+
 
 
