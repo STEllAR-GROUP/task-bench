@@ -4,6 +4,7 @@
 //  Distributed under the Boost Software License, Version 1.0. (See accompanying
 //  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -32,8 +33,8 @@ int hpx_main(int argc, char *argv[])
   std::vector<std::vector<char> > scratch;
 
   int chunk_sz = app.graphs[0].max_width / (n_ranks * hpx::get_os_thread_count());
-  //std::cout << "chunk_sz: " << chunk_sz 
-  //          << "num_threads: " << hpx::get_os_thread_count() << "\n";
+  std::cout << "chunk_sz: " << chunk_sz 
+            << ", num_threads: " << hpx::get_os_thread_count() << "\n";
   //int chunk_sz = 1;
 
 
@@ -155,6 +156,7 @@ int hpx_main(int argc, char *argv[])
         auto &rev_deps = reverse_dependencies[dset];
 
         int num_threads = hpx::get_os_thread_count();
+        //int num_threads = 32;
         std::vector<std::vector<MPI_Request>> requests_by_threads(num_threads);
         
         hpx::for_loop(policy, first_point, last_point+1, [&](long point) {
@@ -191,6 +193,8 @@ int hpx_main(int argc, char *argv[])
                             point_inputs[point_n_inputs].size(), MPI_BYTE,
                             rank_by_point[dep], tag, MPI_COMM_WORLD, &req);
                   int thread_id = hpx::get_worker_thread_num();
+                  //int thread_id = (point / chunk_sz) % num_threads;
+                  //std::cout << "thread_id " << thread_id << "\n";
                   requests_by_threads[thread_id].push_back(req);
                 }
                 point_n_inputs++;
@@ -213,14 +217,42 @@ int hpx_main(int argc, char *argv[])
                 MPI_Isend(point_output.data(), point_output.size(), MPI_BYTE,
                           rank_by_point[dep], tag, MPI_COMM_WORLD, &req);
                 int thread_id = hpx::get_worker_thread_num();
+                //int thread_id = (point / chunk_sz) % num_threads;
+                //std::cout << "Thread_id " << thread_id << "\n";
                 requests_by_threads[thread_id].push_back(req);
               }
             }
           }  // send
         });    // for loop for exchange
+/***
+        for (auto vec: requests_by_threads) {
+          MPI_Waitall(vec.size(), vec.data(), MPI_STATUSES_IGNORE);
+        }
+***/
+        
+        std::size_t reqs_size = 0;
+        for(auto vec: requests_by_threads) {
+            reqs_size += vec.size();
+        }
+
+        //if (timestep % 100 == 0) {
+        //  std::cout << "time: " << timestep << ", rank: " 
+        //            << rank << ", reqs_size: " << reqs_size << "\n";
+        //}
+        
+
+        std::vector<MPI_Request> one_vector_req;
+        one_vector_req.reserve(reqs_size);
 
         for(auto vec: requests_by_threads) {
-            MPI_Waitall(vec.size(), vec.data(), MPI_STATUSES_IGNORE);
+            one_vector_req.insert(one_vector_req.end(), vec.begin(), vec.end());
+        }
+
+        MPI_Waitall(one_vector_req.size(), one_vector_req.data(), MPI_STATUSES_IGNORE);
+        //std::cout << "time: " << timestep << ", rank: " << rank << ", finish wait_all \n";
+        if (timestep % 100 == 0) {
+          std::cout << "time: " << timestep << ", rank: " 
+                    << rank << ", finish wait_all \n";
         }
 
         long start = std::max(first_point, offset);
