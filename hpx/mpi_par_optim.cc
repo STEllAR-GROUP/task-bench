@@ -4,6 +4,7 @@
 //  Distributed under the Boost Software License, Version 1.0. (See accompanying
 //  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -31,16 +32,23 @@ int hpx_main(int argc, char *argv[])
 
   std::vector<std::vector<char> > scratch;
 
+  /***
+  int chunk_sz = app.graphs[0].max_width / (n_ranks * hpx::get_os_thread_count());
+  std::cout << "chunk_sz: " << chunk_sz 
+            << ", num_threads: " << hpx::get_os_thread_count() << "\n";
+  ***/
+  int chunk_sz = 1;
+
+/***
   using executor = hpx::execution::experimental::fork_join_executor;
   executor exec(hpx::threads::thread_priority::normal,
                 hpx::threads::thread_stacksize::small_,
                 executor::loop_schedule::static_,
                 std::chrono::microseconds(100));
-
-  //hpx::execution::static_chunk_size fixed(app.graphs[0].max_width /
-  //                                        hpx::get_num_worker_threads());
-  hpx::execution::static_chunk_size fixed(1);
-  auto policy = hpx::execution::par.on(exec).with(fixed);
+***/
+  hpx::execution::static_chunk_size fixed(chunk_sz);
+  //auto policy = hpx::execution::par.on(exec).with(fixed);
+  auto policy = hpx::execution::par.with(fixed);
 
   for (auto graph : app.graphs) {
     long first_point = rank * graph.max_width / n_ranks;
@@ -54,7 +62,7 @@ int hpx_main(int argc, char *argv[])
 
   double elapsed_time = 0.0;
 
-  for (int iter = 0; iter < 2; ++iter) {
+  for (int iter = 0; iter < 1; ++iter) {
     MPI_Barrier(MPI_COMM_WORLD);
 
     double start_time = MPI_Wtime();
@@ -77,7 +85,7 @@ int hpx_main(int argc, char *argv[])
         for (long p = r_first_point; p <= r_last_point; ++p) {
           rank_by_point[p] = r;
           tag_bits_by_point[p] = p - r_first_point;
-          // assert((tag_bits_by_point[p] & ~0x7F) == 0);
+          //assert((tag_bits_by_point[p] & ~0x7F) == 0);
         }
       }
 
@@ -98,7 +106,6 @@ int hpx_main(int argc, char *argv[])
       std::vector<std::vector<size_t> > input_bytes(n_points);
       std::vector<long> n_inputs(n_points);
       std::vector<std::vector<char> > outputs(n_points);
-      std::vector<std::vector<char> > outputs_new(n_points);
 
       for (long point = first_point; point <= last_point; ++point) {
         long point_index = point - first_point;
@@ -119,12 +126,7 @@ int hpx_main(int argc, char *argv[])
 
         auto &point_outputs = outputs[point_index];
         point_outputs.resize(graph.output_bytes_per_task);
-
-        auto &point_outputs_new = outputs_new[point_index];
-        point_outputs_new.resize(graph.output_bytes_per_task);
       }
-
-      //std::vector<std::vector<char> > outputs_new(outputs);
 
       // Cache dependencies.
       std::vector<std::vector<std::vector<std::pair<long, long> > > >
@@ -155,19 +157,18 @@ int hpx_main(int argc, char *argv[])
         auto &deps = dependencies[dset];
         auto &rev_deps = reverse_dependencies[dset];
 
-        hpx::for_loop(policy, first_point, last_point+1, [&](int point) {
-          std::vector<MPI_Request> requests;
-
+        //int num_threads = hpx::get_os_thread_count();
+        int num_threads = 48;
+        std::vector<std::vector<MPI_Request>> requests_by_threads(num_threads);
+        
+        hpx::for_loop(policy, first_point, last_point+1, [&](long point) {
           long point_index = point - first_point;
 
           auto &point_inputs = inputs[point_index];
+
           auto &point_n_inputs = n_inputs[point_index];
 
           auto &point_output = outputs[point_index];
-          auto &point_output_new = outputs_new[point_index];
-
-          auto &point_input_ptr = input_ptr[point_index];
-          auto &point_input_bytes = input_bytes[point_index];
 
           auto &point_deps = deps[point_index];
           auto &point_rev_deps = rev_deps[point_index];
@@ -182,16 +183,9 @@ int hpx_main(int argc, char *argv[])
                 }
                 // Use shared memory for on-node data.
                 if (first_point <= dep && dep <= last_point) {
-                  auto output = outputs[dep - first_point];
-                  if (timestep % 2 == 0) {
-                    point_inputs[point_n_inputs].assign(output.begin(),
+                  auto &output = outputs[dep - first_point];
+                  point_inputs[point_n_inputs].assign(output.begin(),
                                                       output.end());
-                  } else {
-                    auto output_new = outputs_new[dep - first_point];
-                    point_inputs[point_n_inputs].assign(output_new.begin(),
-                                                      output_new.end());
-                  }
-                  
                 } else {
                   int from = tag_bits_by_point[dep];
                   int to = tag_bits_by_point[point];
@@ -200,7 +194,10 @@ int hpx_main(int argc, char *argv[])
                   MPI_Irecv(point_inputs[point_n_inputs].data(),
                             point_inputs[point_n_inputs].size(), MPI_BYTE,
                             rank_by_point[dep], tag, MPI_COMM_WORLD, &req);
-                  requests.push_back(req);
+                  //int thread_id = hpx::get_worker_thread_num();
+                  int thread_id = (point / chunk_sz) % num_threads;
+                  //std::cout << "thread_id " << thread_id << "\n";
+                  requests_by_threads[thread_id].push_back(req);
                 }
                 point_n_inputs++;
               }
@@ -219,36 +216,67 @@ int hpx_main(int argc, char *argv[])
                 int to = tag_bits_by_point[dep];
                 int tag = (from << 8) | to;
                 MPI_Request req;
-                if (timestep % 2 == 0) {
-                    MPI_Isend(point_output.data(), point_output.size(), MPI_BYTE,
+                MPI_Isend(point_output.data(), point_output.size(), MPI_BYTE,
                           rank_by_point[dep], tag, MPI_COMM_WORLD, &req);
-                } else {
-                    MPI_Isend(point_output_new.data(), point_output_new.size(), MPI_BYTE,
-                          rank_by_point[dep], tag, MPI_COMM_WORLD, &req);
-                }
-                
-                requests.push_back(req);
+                //int thread_id = hpx::get_worker_thread_num();
+                int thread_id = (point / chunk_sz) % num_threads;
+                //std::cout << "Thread_id " << thread_id << "\n";
+                requests_by_threads[thread_id].push_back(req);
               }
             }
           }  // send
+        });    // for loop for exchange
+	std::cout << "time: " << timestep << ", rank: " << rank << ", finish first for loop \n";
+/***
+        for (auto vec: requests_by_threads) {
+          MPI_Waitall(vec.size(), vec.data(), MPI_STATUSES_IGNORE);
+        }
+***/
+        
+        std::size_t reqs_size = 0;
+        for(auto vec: requests_by_threads) {
+            reqs_size += vec.size();
+        }
 
-          MPI_Waitall(requests.size(), requests.data(), MPI_STATUSES_IGNORE);
+        //if (timestep % 10 == 0) {
+        //  std::cout << "time: " << timestep << ", rank: " 
+        //            << rank << ", reqs_size: " << reqs_size << "\n";
+        //}
+        
 
-          if (timestep % 2 == 0) {
-              graph.execute_point(timestep, point, point_output_new.data(),
-                              point_output_new.size(), point_input_ptr.data(),
-                              point_input_bytes.data(), point_n_inputs,
-                              scratch_ptr + scratch_bytes * point_index,
-                              scratch_bytes);
-          } else {
-              graph.execute_point(timestep, point, point_output.data(),
-                              point_output.size(), point_input_ptr.data(),
-                              point_input_bytes.data(), point_n_inputs,
-                              scratch_ptr + scratch_bytes * point_index,
-                              scratch_bytes);
-          }
+        std::vector<MPI_Request> one_vector_req;
+        one_vector_req.reserve(reqs_size);
 
-        });    // for loop 
+        for(auto vec: requests_by_threads) {
+            one_vector_req.insert(one_vector_req.end(), vec.begin(), vec.end());
+        }
+
+        MPI_Waitall(one_vector_req.size(), one_vector_req.data(), MPI_STATUSES_IGNORE);
+        std::cout << "time: " << timestep << ", rank: " << rank << ", finish wait_all \n";
+        //if (timestep % 10 == 0) {
+        //  std::cout << "time: " << timestep << ", rank: " 
+        //            << rank << ", finish wait_all \n";
+        //}
+
+        long start = std::max(first_point, offset);
+        long end = std::min(last_point + 1, offset + width);
+
+        if (start < end) {
+          hpx::for_loop(policy, start, end, [&](int point) {
+            long point_index = point - first_point;
+
+            auto &point_input_ptr = input_ptr[point_index];
+            auto &point_input_bytes = input_bytes[point_index];
+            auto &point_n_inputs = n_inputs[point_index];
+            auto &point_output = outputs[point_index];
+
+            graph.execute_point(timestep, point, point_output.data(),
+                                point_output.size(), point_input_ptr.data(),
+                                point_input_bytes.data(), point_n_inputs,
+                                scratch_ptr + scratch_bytes * point_index,
+                                scratch_bytes);
+          });  // hpx_for loop
+        }
 
       }  // for time steps loop
     }    // for graphs loop
