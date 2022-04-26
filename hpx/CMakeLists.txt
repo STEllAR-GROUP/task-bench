@@ -21,18 +21,12 @@ find_package(HPX REQUIRED)
 
 link_directories(${CMAKE_SOURCE_DIR}/../core)
 
-
 add_executable(mpi_executor mpi_executor.cc)
 target_link_libraries(mpi_executor PUBLIC HPX::hpx HPX::wrap_main core_s)
 
-add_executable(new_hpx_local new_hpx_local.cc)
-target_link_libraries(new_hpx_local PUBLIC HPX::hpx HPX::wrap_main core_s)
+add_executable(mpi_executor_op mpi_executor_op.cc)
+target_link_libraries(mpi_executor_op PUBLIC HPX::hpx HPX::wrap_main core_s)
 
-add_executable(mpi_executor_over mpi_executor_over.cc)
-target_link_libraries(mpi_executor_over PUBLIC HPX::hpx HPX::wrap_main core_s)
-
-add_executable(mpi_executor_optim mpi_executor_optim.cc)
-target_link_libraries(mpi_executor_optim PUBLIC HPX::hpx HPX::wrap_main core_s)
 
 
 
